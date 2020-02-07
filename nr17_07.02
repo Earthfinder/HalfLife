@@ -1,0 +1,155 @@
+#include <iostream.h> 
+#include <main.h> 
+SCREENINFO g_Screen; 
+local_s g_Local; 
+
+char *g_szHackName = NULL; 
+
+#define M_PI 3.14159265358979323846 
+typedef float bonematrix_t[MAXSTUDIOBONES][3][4]; 
+
+cvar_s *sensitivity, *m_filter, *m_yaw, *msl; 
+
+void HookEngine( void ) 
+{ 
+//g_pEngine = (cl_enginefunc_t*)( *(DWORD*)( *(DWORD*)g_Client.Initialize + 0x1C ) ); 
+memcpy( &g_Engine, (LPVOID)g_pEngine, sizeof( cl_enginefunc_t ) ); 
+// engine hooks hier 
+} 
+
+void HookStudio( void ) 
+{ 
+//g_pStudio = (engine_studio_api_t*)( *(DWORD*)( *(DWORD*)g_Client.HUD_GetStudioModelInterface_get_rentz_for_prank + 0x1A ) ); 
+memcpy( &g_Studio, (LPVOID)g_pStudio, sizeof( engine_studio_api_t ) ); 
+//studiohooks hier 
+} 
+
+void HUD_Frame( double time ) 
+{ 
+//add_log( "called" ); 
+static bool b = true; 
+if( b && g_pEngine != NULL ) // erster FRAME 
+{ 
+g_szHackName = "Mouse Speed Limit"; 
+g_Engine.Con_Printf( "\n\n\t%s\n\n", g_szHackName ); 
+g_Engine.pfnClientCmd( "toggleconsole" ); 
+g_Screen.iSize = sizeof( SCREENINFO ); 
+g_Engine.pfnGetScreenInfo( &g_Screen ); 
+g_Engine.pfnRegisterVariable("msl", "350.0", 0); 
+
+sensitivity = g_Engine.pfnGetCvarPointer("sensitivity"); 
+m_filter = g_Engine.pfnGetCvarPointer("m_filter"); 
+m_yaw = g_Engine.pfnGetCvarPointer("m_yaw"); 
+msl = g_Engine.pfnGetCvarPointer("msl"); 
+b = false; 
+} 
+g_Client.HUD_Frame( time ); 
+} 
+
+void HUD_Redraw( float time, int intermission ) 
+{ 
+g_Client.HUD_Redraw( time, intermission ); 
+
+cl_entity_t *pLocal = g_Engine.GetLocalPlayer(); 
+g_Local.iIndex = pLocal->index; 
+g_Local.bAlive = ( pLocal->curstate.solid ? true : false ); 
+} 
+
+int HUD_Key_Event( int down, int keynum, const char *pszCurrentBinding ) 
+{ 
+return g_Client.HUD_Key_Event( down, keynum, pszCurrentBinding ); 
+} 
+
+int HUD_AddEntity( int type, struct cl_entity_s *ent, const char *modelname ) 
+{ 
+return g_Client.HUD_AddEntity( type, ent, modelname ); 
+} 
+
+void HUD_PlayerMove( struct playermove_s *ppmove, int server ) 
+{ 
+g_Client.HUD_PlayerMove( ppmove, server ); 
+g_Engine.pEventAPI->EV_LocalPlayerViewheight( g_Local.vEye ); 
+g_Local.vEye = g_Local.vEye + ppmove->origin; // unser auge 
+g_Local.iFlags = ppmove->flags; 
+} 
+
+void V_CalcRefdef( struct ref_params_s *pparams ) 
+{ 
+//pre calcrefdef 
+g_Client.V_CalcRefdef( pparams ); 
+//post calcrefdef 
+} 
+
+void CL_CreateMove( float frametime, struct usercmd_s *cmd, int active ) 
+{ 
+int mx; 
+float nextyaw; 
+POINT current_pos; 
+
+GetCursorPos(&current_pos); 
+
+mx = current_pos.x - g_Engine.GetWindowCenterX() + g_Local.mx_accum; 
+g_Local.mx_accum = 0; 
+
+if(m_filter->value) 
+{ 
+g_Local.mouse_x = (mx + g_Local.old_mouse_x) * 0.5; 
+} 
+else 
+{ 
+g_Local.mouse_x = mx; 
+} 
+
+g_Local.old_mouse_x = mx; 
+
+g_Local.mouse_x *= sensitivity->value; 
+nextyaw = m_yaw->value * g_Local.mouse_x; 
+
+if(nextyaw > msl->value || nextyaw < -msl->value) 
+{ 
+g_Local.mouse_x = (msl->value / m_yaw->value) / sensitivity->value; 
+
+if(m_filter->value) 
+{ 
+nextyaw = (g_Local.mouse_x * 2) - g_Local.old_mouse_x; 
+} 
+else 
+{ 
+nextyaw = g_Local.mouse_x; 
+} 
+
+g_Local.old_mouse_x = nextyaw; 
+
+current_pos.x = nextyaw - g_Local.mx_accum - g_Engine.GetWindowCenterX(); 
+
+SetCursorPos(current_pos.x, current_pos.y); 
+} 
+
+g_Client.CL_CreateMove( frametime, cmd, active ); 
+} 
+
+void HUD_PostRunCmd( struct local_state_s *from, struct local_state_s *to, struct usercmd_s *cmd, int runfuncs, double time, unsigned int random_seed ) 
+{ 
+g_Client.HUD_PostRunCmd( from, to, cmd, runfuncs, time, random_seed ); 
+} 
+
+int HUD_GetStudioModelInterface( int version, struct r_studio_interface_s **ppinterface, struct engine_studio_api_s *pstudio ) 
+{ 
+//HookOpenGL(); 
+return g_Client.HUD_GetStudioModelInterface( version, ppinterface, pstudio ); 
+} 
+
+void HookClient( void ) 
+{ 
+memcpy( &g_Client, (LPVOID)g_pClient, sizeof( cl_clientfunc_t ) ); 
+g_pClient->HUD_Frame = HUD_Frame; 
+g_pClient->HUD_Redraw = HUD_Redraw; 
+g_pClient->HUD_Key_Event = HUD_Key_Event; 
+g_pClient->HUD_AddEntity = HUD_AddEntity; 
+g_pClient->HUD_PlayerMove = HUD_PlayerMove; 
+g_pClient->V_CalcRefdef = V_CalcRefdef; 
+g_pClient->CL_CreateMove = CL_CreateMove; 
+g_pClient->HUD_PostRunCmd = HUD_PostRunCmd; 
+g_pClient->HUD_GetStudioModelInterface = HUD_GetStudioModelInterface; 
+}
+
